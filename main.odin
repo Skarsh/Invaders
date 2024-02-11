@@ -29,6 +29,11 @@ Bullet :: struct {
 	rect:     rl.Rectangle,
 	damage:   i32,
 	velocity: f32,
+	state:    enum {
+		NORMAL,
+		SMALL_EXPLOSION,
+		LARGE_EXPLOSION,
+	},
 }
 
 Game :: struct {
@@ -52,13 +57,22 @@ UserInput :: struct {
 SCREEN_WIDTH :: 1024
 SCREEN_HEIGHT :: 1024
 
-RESOLUTION_MULTIPLIER :: 3
+RESOLUTION_MULTIPLIER :: 5
 
 PLAYER_SPRITE_WIDTH :: 8
 PLAYER_SPRITE_HEIGHT :: 7
 
+BULLET_SPRITE_SRC_START_X :: 11
+BULLET_SPRITE_SRC_START_Y :: 19
+
 BULLET_SPRITE_WIDTH :: 2
 BULLET_SPRITE_HEIGHT :: 3
+
+BULLET_SMALL_EXPLOSION_SPRITE_SRC_START_X :: 10
+BULLET_SMALL_EXPLOSION_SPRITE_SRC_START_Y :: 26
+
+BULLET_SMALL_EXPLOSION_SPRITE_WIDTH :: 4
+BULLET_SMALL_EXPLOSION_SPRITE_HEIGHT :: 4
 
 SIMPLE_ENEMY_SPRITE_WIDTH :: 6
 SIMPLE_ENEMY_SPRITE_HEIGHT :: 8
@@ -147,13 +161,15 @@ update_game :: proc(
 		// If bullet hit enemy, make the enemy take damage
 		for &enemy, enemy_idx in game.enemies {
 			if rl.CheckCollisionRecs(bullet.rect, enemy.rect) {
+				bullet.state = .SMALL_EXPLOSION
 				rl.PlaySound(explosion_sound)
 				enemy.health -= bullet.damage
 				if (enemy.health <= 0) {
 					rl.PlaySound(invader_killed_sound)
 					unordered_remove(&game.enemies, enemy_idx)
 				}
-
+				// TODO(Thomas): Don't remove bullet immediately, 
+				// it needs to stay alive a little while for the explosion animation
 				unordered_remove(&game.player_bullets, bullet_idx)
 			}
 		}
@@ -275,11 +291,9 @@ main :: proc() {
 	}
 	player_sprite_origin := rl.Vector2{0, 0}
 
-	bullet_sprite_src_start_x := 11
-	bullet_sprite_src_start_y := 19
 	bullet_sprite_source_rect := rl.Rectangle {
-		f32(bullet_sprite_src_start_x),
-		f32(bullet_sprite_src_start_y),
+		f32(BULLET_SPRITE_SRC_START_X),
+		f32(BULLET_SPRITE_SRC_START_Y),
 		f32(BULLET_SPRITE_WIDTH),
 		f32(BULLET_SPRITE_HEIGHT),
 	}
@@ -290,6 +304,22 @@ main :: proc() {
 		f32(BULLET_SPRITE_HEIGHT),
 	}
 	bullet_sprite_origin := rl.Vector2{0, 0}
+
+	bullet_small_explosion_sprite_src_start_x := 10
+	bullet_small_explosion_sprite_src_start_y := 26
+	bullet_small_explosion_sprite_source_rect := rl.Rectangle {
+		f32(bullet_small_explosion_sprite_src_start_x),
+		f32(bullet_small_explosion_sprite_src_start_y),
+		f32(BULLET_SMALL_EXPLOSION_SPRITE_WIDTH),
+		f32(BULLET_SMALL_EXPLOSION_SPRITE_HEIGHT),
+	}
+	bullet_medium_explosion_sprite_dst_rect := rl.Rectangle {
+		SCREEN_WIDTH / 2.0,
+		SCREEN_HEIGHT / 2.0,
+		f32(BULLET_SMALL_EXPLOSION_SPRITE_WIDTH),
+		f32(BULLET_SMALL_EXPLOSION_SPRITE_HEIGHT),
+	}
+	bullet_small_explosion_sprite_origin := rl.Vector2{0, 0}
 
 	simple_enemy_sprite_src_start_x := 33
 	simple_enemy_sprite_src_start_y := 0
@@ -391,13 +421,42 @@ main :: proc() {
 		)
 
 		for &bullet in game.player_bullets {
-			draw_bullet(
-				bullet,
-				invaders_sprite_sheet,
-				bullet_sprite_source_rect,
-				bullet_sprite_origin,
-				0,
-			)
+			switch bullet.state {
+			case .NORMAL:
+				draw_bullet(
+					bullet,
+					invaders_sprite_sheet,
+					rl.Rectangle {
+						f32(BULLET_SPRITE_SRC_START_X),
+						f32(BULLET_SPRITE_SRC_START_Y),
+						f32(BULLET_SPRITE_WIDTH),
+						f32(BULLET_SPRITE_HEIGHT),
+					},
+					rl.Vector2{0, 0},
+					0,
+				)
+			case .SMALL_EXPLOSION:
+				draw_bullet(
+					bullet,
+					invaders_sprite_sheet,
+					rl.Rectangle {
+						f32(BULLET_SMALL_EXPLOSION_SPRITE_SRC_START_X),
+						f32(BULLET_SMALL_EXPLOSION_SPRITE_SRC_START_X),
+						f32(BULLET_SMALL_EXPLOSION_SPRITE_WIDTH),
+						f32(BULLET_SMALL_EXPLOSION_SPRITE_HEIGHT),
+					},
+					rl.Vector2{0, 0},
+					0,
+				)
+			case .LARGE_EXPLOSION:
+				draw_bullet(
+					bullet,
+					invaders_sprite_sheet,
+					bullet_sprite_source_rect,
+					bullet_sprite_origin,
+					0,
+				)
+			}
 		}
 
 		for &enemy in game.enemies {
