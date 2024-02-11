@@ -21,8 +21,9 @@ Player :: struct {
 }
 
 Enemy :: struct {
-	rect:   rl.Rectangle,
-	health: i32,
+	rect:     rl.Rectangle,
+	health:   i32,
+	velocity: f32,
 }
 
 Bullet :: struct {
@@ -140,7 +141,7 @@ update_game :: proc(
 						height = BULLET_SPRITE_HEIGHT * RESOLUTION_MULTIPLIER,
 					},
 					damage = 10,
-					velocity = 20,
+					velocity = 1200,
 				},
 			)
 			last_shoot_time = now._nsec
@@ -174,15 +175,19 @@ update_game :: proc(
 			}
 		}
 
-		bullet.rect.y -= bullet.velocity
+		bullet.rect.y -= bullet.velocity * dt
 	}
 
 
 	// Update enemies
 	for &enemy in game.enemies {
-		radius: f32 = 5.0
-		enemy.rect.x += math.cos(angle) * radius
-		enemy.rect.y += math.sin(angle) * radius
+		// TODO(Thomas): This is currently working a bit weird.
+		// I would like the enemies to rotate in a circle based on a radius and
+		// then have velocity be the angular velocity or something like that
+		// Problem with this now is that it changes depending on the dt, so different
+		// framerates have different behaviour
+		enemy.rect.x += math.cos(angle) * enemy.velocity * dt
+		enemy.rect.y += math.sin(angle) * enemy.velocity * dt
 	}
 }
 
@@ -242,7 +247,7 @@ main :: proc() {
 		"Space Invaders!",
 		SCREEN_WIDTH,
 		SCREEN_HEIGHT,
-		60,
+		144,
 		rl.ConfigFlags{.WINDOW_RESIZABLE},
 	}
 
@@ -369,6 +374,7 @@ main :: proc() {
 					RESOLUTION_MULTIPLIER,
 				},
 				health = 10,
+				velocity = 400,
 			},
 		)
 
