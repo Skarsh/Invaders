@@ -2,6 +2,9 @@ package main
 
 import "core:fmt"
 import math "core:math"
+import "core:math/linalg"
+import "core:math/linalg/glsl"
+import "core:math/rand"
 import time "core:time"
 import rl "vendor:raylib"
 
@@ -14,26 +17,30 @@ Window :: struct {
 }
 
 Player :: struct {
-	sprite:        rl.Rectangle,
-	rect:          rl.Rectangle,
-	num_lives:     i32,
-	velocity:      f32,
-	shooting_freq: f32,
+	sprite:          rl.Rectangle,
+	rect:            rl.Rectangle,
+	num_lives:       i32,
+	velocity:        f32,
+	shooting_freq:   f32,
+	last_shoot_time: i64,
+	last_hit_time:   i64,
 }
 
 Enemy :: struct {
-	sprite:   rl.Rectangle,
-	rect:     rl.Rectangle,
-	health:   i32,
-	velocity: f32,
+	sprite:    rl.Rectangle,
+	rect:      rl.Rectangle,
+	health:    i32,
+	velocity:  f32,
+	attacking: bool,
 }
 
 Bullet :: struct {
-	sprite:   rl.Rectangle,
-	rect:     rl.Rectangle,
-	damage:   i32,
-	velocity: f32,
-	state:    enum {
+	sprite:               rl.Rectangle,
+	rect:                 rl.Rectangle,
+	damage:               i32,
+	velocity:             f32,
+	animation_time_start: i64,
+	state:                enum {
 		NORMAL,
 		SMALL_EXPLOSION,
 		LARGE_EXPLOSION,
@@ -41,14 +48,18 @@ Bullet :: struct {
 }
 
 Game :: struct {
-	last_tick:      time.Time,
-	pause:          bool,
-	colors:         []rl.Color,
-	width:          i32,
-	height:         i32,
-	player:         Player,
-	enemies:        [dynamic]Enemy,
-	player_bullets: [dynamic]Bullet,
+	last_tick:              time.Time,
+	pause:                  bool,
+	colors:                 []rl.Color,
+	width:                  i32,
+	height:                 i32,
+	player:                 Player,
+	enemies:                [dynamic]Enemy,
+	player_bullets:         [dynamic]Bullet,
+	initialized:            bool,
+	won:                    bool,
+	lost:                   bool,
+	last_enemy_attack_time: i64,
 }
 
 UserInput :: struct {
@@ -116,8 +127,11 @@ process_user_input :: proc(user_input: ^UserInput, window: Window) {
 }
 
 // TODO(Thomas): Globals like this are not that nice
-last_shoot_time: i64 = 0
 angle: f32 = 0.0
+attack_cooldown_duration: i64 = 5_000_000_000
+hit_cooldown_duration: i64 = 1_000_000_000
+small_explosion_duration: i64 = 25_000_000
+large_explosion_duration: i64 = 25_000_000
 
 update_game :: proc(
 	game: ^Game,
@@ -125,6 +139,8 @@ update_game :: proc(
 	invader_killed_sound: rl.Sound,
 	explosion_sound: rl.Sound,
 ) {
+	using glsl
+
 	// Update player
 	now := time.now()
 	// dt in sec
@@ -132,6 +148,7 @@ update_game :: proc(
 	game.last_tick = time.now()
 
 	angle += 0.05
+
 
 	// TODO(Thomas): This is currently framerate dependent movement
 	if rl.IsKeyDown(.RIGHT) || rl.IsKeyDown(.D) {
@@ -149,8 +166,8 @@ update_game :: proc(
 
 	if rl.IsKeyDown(.SPACE) {
 		// TODO(Thomas): This is trash, convert to seconds and calculate that way or something
-		if f32(now._nsec - last_shoot_time) >
-		   1_000_000_000 / game.player.shooting_freq {
+		if f32(now._nsec - game.player.last_shoot_time) >
+		   NS_PER_SEC / game.player.shooting_freq {
 			rl.PlaySound(player_shoot_sound)
 			append(
 				&game.player_bullets,
@@ -166,12 +183,37 @@ update_game :: proc(
 					velocity = 1200,
 				},
 			)
-			last_shoot_time = now._nsec
+			game.player.last_shoot_time = now._nsec
 		}
 	}
 
 	// Update bullets
 	for &bullet, bullet_idx in game.player_bullets {
+
+		// This animation code is VERY temporary
+		if now._nsec >
+			   bullet.animation_time_start + small_explosion_duration &&
+		   now._nsec < bullet.animation_time_start + large_explosion_duration {
+			bullet.state = .LARGE_EXPLOSION
+		}
+
+		if now._nsec >
+			   bullet.animation_time_start + large_explosion_duration &&
+		   now._nsec <
+			   bullet.animation_time_start +
+				   large_explosion_duration +
+				   small_explosion_duration {
+			bullet.state = .SMALL_EXPLOSION
+		}
+
+		if now._nsec >
+			   bullet.animation_time_start +
+				   large_explosion_duration +
+				   small_explosion_duration &&
+		   bullet.state != .NORMAL {
+			unordered_remove(&game.player_bullets, bullet_idx)
+		}
+
 		// Bullet is outside the screen remove it and continue to next bullet
 		if bullet.rect.x < 0 ||
 		   bullet.rect.x > SCREEN_WIDTH ||
@@ -184,34 +226,75 @@ update_game :: proc(
 		// If bullet hit enemy, make the enemy take damage
 		for &enemy, enemy_idx in game.enemies {
 			if rl.CheckCollisionRecs(bullet.rect, enemy.rect) {
+				bullet.animation_time_start = time.now()._nsec
 				bullet.state = .SMALL_EXPLOSION
 				rl.PlaySound(explosion_sound)
 				enemy.health -= bullet.damage
 				if (enemy.health <= 0) {
 					rl.PlaySound(invader_killed_sound)
 					unordered_remove(&game.enemies, enemy_idx)
+					if len(game.enemies) == 0 {
+						game.won = true
+					}
 				}
-				// TODO(Thomas): Don't remove bullet immediately, 
-				// it needs to stay alive a little while for the explosion animation
-				unordered_remove(&game.player_bullets, bullet_idx)
 			}
 		}
 
-		bullet.rect.y -= bullet.velocity * dt
+		#partial switch bullet.state {
+		case .NORMAL:
+			bullet.rect.y -= bullet.velocity * dt
+		}
 	}
 
+	random_enemy_idx: i32
+	if !game.initialized {
+		game.last_enemy_attack_time = now._nsec
+		game.initialized = true
+	} else {
+		if now._nsec > game.last_enemy_attack_time + attack_cooldown_duration {
+			random_enemy_idx = rl.GetRandomValue(0, i32(len(game.enemies)))
+			if (random_enemy_idx < i32(len(game.enemies))) {
+				game.enemies[random_enemy_idx].attacking = true
+				game.last_enemy_attack_time = now._nsec
+			}
+		}
+	}
 
 	// Update enemies
 	for &enemy in game.enemies {
+		// Check if player collides with enemy
+		if rl.CheckCollisionRecs(game.player.rect, enemy.rect) {
+			if now._nsec > game.player.last_hit_time + hit_cooldown_duration {
+				if (game.player.num_lives > 0) {
+					game.player.num_lives -= 1
+					game.player.last_hit_time = now._nsec
+					if game.player.num_lives == 0 {
+						game.lost = true
+					}
+				}
+			}
+		}
+
 		// TODO(Thomas): This is currently working a bit weird.
 		// I would like the enemies to rotate in a circle based on a radius and
 		// then have velocity be the angular velocity or something like that
 		// Problem with this now is that it changes depending on the dt, so different
 		// framerates have different behaviour
-		enemy.rect.x += math.cos(angle) * enemy.velocity * dt
-		enemy.rect.y += math.sin(angle) * enemy.velocity * dt
+		if !enemy.attacking {
+			enemy.rect.x += math.cos(angle) * enemy.velocity * dt
+			enemy.rect.y += math.sin(angle) * enemy.velocity * dt
+		} else {
+			player_vec := vec2{game.player.rect.x, game.player.rect.y}
+			enemy_vec := vec2{enemy.rect.x, enemy.rect.y}
+
+			dir := normalize_vec2(player_vec - enemy_vec)
+
+			enemy.rect.x += dir.x * enemy.velocity * dt
+			enemy.rect.y += dir.y * enemy.velocity * dt
+		}
 	}
 }
+
 
 draw_player :: proc(
 	player: Player,
@@ -266,7 +349,7 @@ draw_enemy :: proc(
 
 main :: proc() {
 	window := Window {
-		"Space Invaders!",
+		"Definitely Not Space Invaders!",
 		SCREEN_WIDTH,
 		SCREEN_HEIGHT,
 		144,
@@ -341,7 +424,7 @@ main :: proc() {
 
 	}
 
-	rl.SetMusicVolume(music, 0.0)
+	rl.SetMusicVolume(music, 0.1)
 	rl.PlayMusicStream(music)
 
 	// Infinite game loop. Breaks on pressing <Esc>
@@ -374,7 +457,14 @@ main :: proc() {
 			pause = !pause
 		}
 
-		update_game(&game, shoot_sound, invader_killed_sound, explosion_sound)
+		if !game.lost && !game.won {
+			update_game(
+				&game,
+				shoot_sound,
+				invader_killed_sound,
+				explosion_sound,
+			)
+		}
 
 		// Step 3: Draw the world
 		rl.BeginDrawing()
@@ -433,6 +523,63 @@ main :: proc() {
 			20,
 			rl.GRAY,
 		)
+
+		// TODO(Thomas): Cleanup, this is trash
+		if game.won {
+			rl.ClearBackground(rl.Color{0, 0, 0, 255})
+			game.player.rect.x = SCREEN_WIDTH / 2
+			game.player.rect.y = SCREEN_HEIGHT - 200
+			draw_player(
+				game.player,
+				invaders_sprite_sheet,
+				game.player.sprite,
+				rl.Vector2{0, 0},
+				0,
+			)
+
+			rl.DrawText(
+				"YOU WON!!!",
+				SCREEN_WIDTH / 2 - 200,
+				SCREEN_HEIGHT / 2,
+				40,
+				rl.GRAY,
+			)
+
+			rl.DrawText(
+				"(c) Marsh Island Game Studios",
+				SCREEN_WIDTH - 350,
+				SCREEN_HEIGHT - 30,
+				20,
+				rl.GRAY,
+			)
+		} else if game.lost {
+			rl.ClearBackground(rl.Color{0, 0, 0, 255})
+			game.player.rect.x = SCREEN_WIDTH / 2
+			game.player.rect.y = SCREEN_HEIGHT - 200
+			draw_player(
+				game.player,
+				invaders_sprite_sheet,
+				game.player.sprite,
+				rl.Vector2{0, 0},
+				0,
+			)
+
+			rl.DrawText(
+				"YOU LOST!!! BUHU CRY BABY",
+				SCREEN_WIDTH / 2 - 250,
+				SCREEN_HEIGHT / 2,
+				40,
+				rl.GRAY,
+			)
+
+			rl.DrawText(
+				"(c) Marsh Island Game Studios",
+				SCREEN_WIDTH - 350,
+				SCREEN_HEIGHT - 30,
+				20,
+				rl.GRAY,
+			)
+		}
 
 		rl.EndDrawing()
 	}
