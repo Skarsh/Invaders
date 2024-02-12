@@ -14,6 +14,7 @@ Window :: struct {
 }
 
 Player :: struct {
+	sprite:        rl.Rectangle,
 	rect:          rl.Rectangle,
 	num_lives:     i32,
 	velocity:      f32,
@@ -21,12 +22,14 @@ Player :: struct {
 }
 
 Enemy :: struct {
+	sprite:   rl.Rectangle,
 	rect:     rl.Rectangle,
 	health:   i32,
 	velocity: f32,
 }
 
 Bullet :: struct {
+	sprite:   rl.Rectangle,
 	rect:     rl.Rectangle,
 	damage:   i32,
 	velocity: f32,
@@ -60,27 +63,45 @@ SCREEN_HEIGHT :: 1024
 
 RESOLUTION_MULTIPLIER :: 5
 
-PLAYER_SPRITE_WIDTH :: 8
-PLAYER_SPRITE_HEIGHT :: 7
-
-BULLET_SPRITE_SRC_START_X :: 11
-BULLET_SPRITE_SRC_START_Y :: 19
-
-BULLET_SPRITE_WIDTH :: 2
-BULLET_SPRITE_HEIGHT :: 3
-
-BULLET_SMALL_EXPLOSION_SPRITE_SRC_START_X :: 10
-BULLET_SMALL_EXPLOSION_SPRITE_SRC_START_Y :: 26
-
-BULLET_SMALL_EXPLOSION_SPRITE_WIDTH :: 4
-BULLET_SMALL_EXPLOSION_SPRITE_HEIGHT :: 4
-
-SIMPLE_ENEMY_SPRITE_WIDTH :: 6
-SIMPLE_ENEMY_SPRITE_HEIGHT :: 8
-
 NUM_ENEMIES :: 10
 NS_PER_SEC :: 1_000_000_000
 NS_PER_MS :: 1_000_000
+
+
+PLAYER_SPRITE :: rl.Rectangle {
+	x      = 0,
+	y      = 1,
+	width  = 8,
+	height = 7,
+}
+
+BULLET_SPRITE :: rl.Rectangle {
+	x      = 11,
+	y      = 19,
+	width  = 2,
+	height = 3,
+}
+
+BULLET_SMALL_EXPLOSION_SPRITE :: rl.Rectangle {
+	x      = 10,
+	y      = 26,
+	width  = 4,
+	height = 4,
+}
+
+BULLET_LARGE_EXPLOSION_SPRITE :: rl.Rectangle {
+	x      = 8,
+	y      = 32,
+	width  = 8,
+	height = 8,
+}
+
+SIMPLE_ENEMY_SPRITE :: rl.Rectangle {
+	x      = 33,
+	y      = 0,
+	width  = 6,
+	height = 8,
+}
 
 process_user_input :: proc(user_input: ^UserInput, window: Window) {
 	m_pos := rl.GetMousePosition()
@@ -134,11 +155,12 @@ update_game :: proc(
 			append(
 				&game.player_bullets,
 				Bullet {
+					sprite = BULLET_SPRITE,
 					rect = rl.Rectangle {
 						x = game.player.rect.x,
 						y = game.player.rect.y,
-						width = BULLET_SPRITE_WIDTH * RESOLUTION_MULTIPLIER,
-						height = BULLET_SPRITE_HEIGHT * RESOLUTION_MULTIPLIER,
+						width = BULLET_SPRITE.width * RESOLUTION_MULTIPLIER,
+						height = BULLET_SPRITE.height * RESOLUTION_MULTIPLIER,
 					},
 					damage = 10,
 					velocity = 1200,
@@ -280,69 +302,6 @@ main :: proc() {
 	)
 	defer rl.UnloadTexture(invaders_sprite_sheet)
 
-	player_sprite_src_start_x := 0
-	player_sprite_src_start_y := 1
-	player_sprite_source_rect := rl.Rectangle {
-		f32(player_sprite_src_start_x),
-		f32(player_sprite_src_start_y),
-		f32(PLAYER_SPRITE_WIDTH),
-		f32(PLAYER_SPRITE_HEIGHT),
-	}
-	player_sprite_dst_rect := rl.Rectangle {
-		SCREEN_WIDTH / 2.0,
-		SCREEN_HEIGHT / 2.0,
-		f32(PLAYER_SPRITE_WIDTH),
-		f32(PLAYER_SPRITE_HEIGHT),
-	}
-	player_sprite_origin := rl.Vector2{0, 0}
-
-	bullet_sprite_source_rect := rl.Rectangle {
-		f32(BULLET_SPRITE_SRC_START_X),
-		f32(BULLET_SPRITE_SRC_START_Y),
-		f32(BULLET_SPRITE_WIDTH),
-		f32(BULLET_SPRITE_HEIGHT),
-	}
-	bullet_sprite_dst_rect := rl.Rectangle {
-		SCREEN_WIDTH / 2.0,
-		SCREEN_HEIGHT / 2.0,
-		f32(BULLET_SPRITE_WIDTH),
-		f32(BULLET_SPRITE_HEIGHT),
-	}
-	bullet_sprite_origin := rl.Vector2{0, 0}
-
-	bullet_small_explosion_sprite_src_start_x := 10
-	bullet_small_explosion_sprite_src_start_y := 26
-	bullet_small_explosion_sprite_source_rect := rl.Rectangle {
-		f32(bullet_small_explosion_sprite_src_start_x),
-		f32(bullet_small_explosion_sprite_src_start_y),
-		f32(BULLET_SMALL_EXPLOSION_SPRITE_WIDTH),
-		f32(BULLET_SMALL_EXPLOSION_SPRITE_HEIGHT),
-	}
-	bullet_medium_explosion_sprite_dst_rect := rl.Rectangle {
-		SCREEN_WIDTH / 2.0,
-		SCREEN_HEIGHT / 2.0,
-		f32(BULLET_SMALL_EXPLOSION_SPRITE_WIDTH),
-		f32(BULLET_SMALL_EXPLOSION_SPRITE_HEIGHT),
-	}
-	bullet_small_explosion_sprite_origin := rl.Vector2{0, 0}
-
-	simple_enemy_sprite_src_start_x := 33
-	simple_enemy_sprite_src_start_y := 0
-	simple_enemey_sprite_source_rect := rl.Rectangle {
-		f32(simple_enemy_sprite_src_start_x),
-		f32(simple_enemy_sprite_src_start_y),
-		f32(SIMPLE_ENEMY_SPRITE_WIDTH),
-		f32(SIMPLE_ENEMY_SPRITE_HEIGHT),
-	}
-	simple_enemy_sprite_dst_rect := rl.Rectangle {
-		SCREEN_WIDTH / 2.0,
-		SCREEN_HEIGHT / 2.0,
-		f32(SIMPLE_ENEMY_SPRITE_WIDTH),
-		f32(SIMPLE_ENEMY_SPRITE_HEIGHT),
-	}
-	simple_enemy_sprite_origin := rl.Vector2{0, 0}
-
-
 	game := Game {
 		last_tick = time.now(),
 		pause = true,
@@ -350,11 +309,12 @@ main :: proc() {
 		width = 64,
 		height = 64,
 		player = Player {
+			sprite = PLAYER_SPRITE,
 			rect =  {
 				x = 200,
 				y = 200,
-				width = f32(PLAYER_SPRITE_WIDTH) * RESOLUTION_MULTIPLIER,
-				height = f32(PLAYER_SPRITE_HEIGHT) * RESOLUTION_MULTIPLIER,
+				width = f32(PLAYER_SPRITE.width) * RESOLUTION_MULTIPLIER,
+				height = f32(PLAYER_SPRITE.height) * RESOLUTION_MULTIPLIER,
 			},
 			num_lives = 3,
 			velocity = 400,
@@ -366,11 +326,12 @@ main :: proc() {
 		append(
 			&game.enemies,
 			Enemy {
+				sprite = SIMPLE_ENEMY_SPRITE,
 				rect = rl.Rectangle {
 					x = (f32(i) * 100) + 50,
 					y = 100,
-					width = SIMPLE_ENEMY_SPRITE_WIDTH * RESOLUTION_MULTIPLIER,
-					height = SIMPLE_ENEMY_SPRITE_HEIGHT *
+					width = SIMPLE_ENEMY_SPRITE.width * RESOLUTION_MULTIPLIER,
+					height = SIMPLE_ENEMY_SPRITE.height *
 					RESOLUTION_MULTIPLIER,
 				},
 				health = 10,
@@ -380,7 +341,7 @@ main :: proc() {
 
 	}
 
-	rl.SetMusicVolume(music, 0.1)
+	rl.SetMusicVolume(music, 0.0)
 	rl.PlayMusicStream(music)
 
 	// Infinite game loop. Breaks on pressing <Esc>
@@ -421,8 +382,8 @@ main :: proc() {
 		draw_player(
 			game.player,
 			invaders_sprite_sheet,
-			player_sprite_source_rect,
-			player_sprite_origin,
+			game.player.sprite,
+			rl.Vector2{0, 0},
 			0,
 		)
 
@@ -432,12 +393,7 @@ main :: proc() {
 				draw_bullet(
 					bullet,
 					invaders_sprite_sheet,
-					rl.Rectangle {
-						f32(BULLET_SPRITE_SRC_START_X),
-						f32(BULLET_SPRITE_SRC_START_Y),
-						f32(BULLET_SPRITE_WIDTH),
-						f32(BULLET_SPRITE_HEIGHT),
-					},
+					BULLET_SPRITE,
 					rl.Vector2{0, 0},
 					0,
 				)
@@ -445,12 +401,7 @@ main :: proc() {
 				draw_bullet(
 					bullet,
 					invaders_sprite_sheet,
-					rl.Rectangle {
-						f32(BULLET_SMALL_EXPLOSION_SPRITE_SRC_START_X),
-						f32(BULLET_SMALL_EXPLOSION_SPRITE_SRC_START_X),
-						f32(BULLET_SMALL_EXPLOSION_SPRITE_WIDTH),
-						f32(BULLET_SMALL_EXPLOSION_SPRITE_HEIGHT),
-					},
+					BULLET_SMALL_EXPLOSION_SPRITE,
 					rl.Vector2{0, 0},
 					0,
 				)
@@ -458,8 +409,8 @@ main :: proc() {
 				draw_bullet(
 					bullet,
 					invaders_sprite_sheet,
-					bullet_sprite_source_rect,
-					bullet_sprite_origin,
+					BULLET_LARGE_EXPLOSION_SPRITE,
+					rl.Vector2{0, 0},
 					0,
 				)
 			}
@@ -469,8 +420,8 @@ main :: proc() {
 			draw_enemy(
 				enemy,
 				invaders_sprite_sheet,
-				simple_enemey_sprite_source_rect,
-				simple_enemy_sprite_origin,
+				SIMPLE_ENEMY_SPRITE,
+				rl.Vector2{0, 0},
 				0,
 			)
 		}
